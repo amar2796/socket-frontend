@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SockTest // Packet Terminal</title>
+    <style>
+        :root {
+            --bg-main: #0b0e0f;
+            --bg-card: #14191b;
+            --border: #242c2f;
+            --text-main: #e2e8f0;
+            --text-muted: #64748b;
+            --accent: #5ffbf1;
+            --accent-glow: rgba(95, 251, 241, 0.15);
+            --warn: #ffb454;
+            --danger: #ff5f5f;
+            --font-mono: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        header {
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            padding: 0.75rem 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo { font-family: var(--font-mono); font-weight: 700; color: var(--accent); letter-spacing: -0.5px; }
+        .status-badge { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; font-family: var(--font-mono); }
+        .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); transition: background 0.3s; }
+        .dot.connected { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+
+        .workspace { flex: 1; display: flex; overflow: hidden; }
+        
+        /* Left Sidebar Controls */
+        .controls-panel {
+            width: 380px;
+            border-right: 1px solid var(--border);
+            background: var(--bg-card);
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            overflow-y: auto;
+        }
+
+        .panel-section { display: flex; flex-direction: column; gap: 1rem; }
+        h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); font-family: var(--font-mono); }
+        
+        .form-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 0.5rem; }
+        .form-group { display: flex; flex-direction: column; gap: 0.25rem; }
+        .form-group.full { grid-column: span 2; }
+        label { font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono); }
+        
+        input, select, textarea {
+            background: var(--bg-main);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 0.5rem;
+            border-radius: 4px;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+        }
+        input:focus, select:focus, textarea:focus { border-color: var(--accent); outline: none; }
+        
+        button {
+            background: var(--border);
+            color: var(--text-main);
+            border: none;
+            padding: 0.6rem;
+            border-radius: 4px;
+            font-family: var(--font-mono);
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        button.primary { background: var(--accent); color: var(--bg-main); }
+        button.primary:hover { opacity: 0.9; box-shadow: 0 0 12px var(--accent-glow); }
+        button.danger { background: var(--danger); color: white; }
+
+        /* Managed Listeners Component */
+        .listeners-list { display: flex; flex-direction: column; gap: 0.5rem; }
+        .listener-item {
+            background: var(--bg-main);
+            border: 1px solid var(--border);
+            padding: 0.6rem;
+            border-radius: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+        }
+        .listener-info { display: flex; align-items: center; gap: 0.5rem; }
+        .pulse-indicator { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 1.5s infinite; }
+
+        /* Right Realtime Terminal Display */
+        .terminal-container { flex: 1; display: flex; flex-direction: column; background: var(--bg-main); }
+        .terminal-header {
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            padding: 0.5rem 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .terminal-stream {
+            flex: 1;
+            padding: 1rem;
+            overflow-y: auto;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            line-height: 1.4;
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+        }
+
+        /* Stream Payload Types formatting */
+        .row { display: flex; align-items: flex-start; gap: 0.75rem; border-bottom: 1px solid rgba(36,44,47,0.3); padding-bottom: 0.25rem; }
+        .ts { color: var(--text-muted); min-width: 85px; }
+        .badge { padding: 1px 4px; border-radius: 2px; font-size: 0.7rem; font-weight: bold; text-transform: uppercase; }
+        .badge.in { background: rgba(95, 251, 241, 0.15); color: var(--accent); }
+        .badge.out { background: rgba(255, 180, 84, 0.15); color: var(--warn); }
+        .badge.sys { background: rgba(100, 116, 139, 0.15); color: var(--text-muted); }
+        .meta { color: var(--text-muted); min-width: 140px; text-overflow: ellipsis; overflow: hidden; }
+        .msg-body { flex: 1; word-break: break-all; white-space: pre-wrap; }
+        .hex-dump { display: block; font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem; }
+
+        @keyframes pulse {
+            0% { transform: scale(0.9); opacity: 0.5; }
+            50% { transform: scale(1.2); opacity: 1; box-shadow: 0 0 8px var(--accent); }
+            100% { transform: scale(0.9); opacity: 0.5; }
+        }
+        .notice-banner { font-size: 0.75rem; color: var(--warn); background: rgba(255, 180, 84, 0.05); padding: 0.5rem; border: 1px dashed rgba(255, 180, 84, 0.2); border-radius: 4px; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo">SOCKTEST // NET-CORE</div>
+        <div style="display:flex; align-items:center; gap:0.75rem;">
+            <input type="text" id="backend-url" placeholder="ws://localhost:8080"
+                   style="width: 280px; font-size: 0.75rem; padding: 0.35rem 0.5rem;">
+            <button onclick="reconnect()" style="padding: 0.35rem 0.6rem; font-size: 0.75rem;">Reconnect</button>
+            <div class="status-badge">
+                <div id="ws-dot" class="dot"></div>
+                <span id="ws-status">DISCONNECTED</span>
+            </div>
+        </div>
+    </header>
+
+    <div class="workspace">
+        <div class="controls-panel">
+            
+            <div class="notice-banner">
+                <strong>Deployment notice:</strong> Arbitrary inbound external TCP/UDP ports are blocked on Render free servers. Use your local environment for standard external listener tests. Outbound generation remains globally active.
+            </div>
+
+            <div class="panel-section">
+                <h2>1. Open Network Listener</h2>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Protocol</label>
+                        <select id="listen-proto">
+                            <option value="udp">UDP (Datagram)</option>
+                            <option value="tcp">TCP (Stream)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Port</label>
+                        <input type="number" id="listen-port" value="5000" min="1" max="65535">
+                    </div>
+                    <div class="form-group full">
+                        <label>Bind Address</label>
+                        <input type="text" id="listen-ip" value="0.0.0.0">
+                    </div>
+                </div>
+                <button class="primary" onclick="startListener()">Bind & Listen</button>
+            </div>
+
+            <div class="panel-section">
+                <h2>Active Socket Bindings</h2>
+                <div id="listeners-container" class="listeners-list">
+                    </div>
+            </div>
+
+            <div class="panel-section">
+                <h2>2. Outbound Generator</h2>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Protocol</label>
+                        <select id="send-proto">
+                            <option value="udp">UDP</option>
+                            <option value="tcp">TCP</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Target Port</label>
+                        <input type="number" id="send-port" value="5000" min="1" max="65535">
+                    </div>
+                    <div class="form-group full">
+                        <label>Target Remote IP</label>
+                        <input type="text" id="send-ip" value="127.0.0.1">
+                    </div>
+                    <div class="form-group full">
+                        <label>Payload Message</label>
+                        <textarea id="send-msg" rows="3" placeholder="Hello from socket..."></textarea>
+                    </div>
+                </div>
+                <button class="primary" onclick="transmitPayload()">Transmit Packet</button>
+            </div>
+        </div>
+
+        <div class="terminal-container">
+            <div class="terminal-header">
+                <h2>Live Event Capture Console</h2>
+                <button onclick="clearConsole()" style="padding: 2px 8px; font-size: 0.75rem;">Clear</button>
+            </div>
+            <div id="terminal" class="terminal-stream"></div>
+        </div>
+    </div>
+
+    <script>
+        let ws;
+        let reconnectTimer = null;
+        const activeListeners = new Map();
+
+        function escapeHtml(s) {
+            return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
+
+        // Auto-detect a sensible backend URL instead of hardcoding one.
+        // Locally this points at localhost:8080 (the default backend port).
+        // When this page is itself served from a deployed Render static
+        // site, same-origin doesn't apply (backend is a separate service),
+        // so we fall back to a sensible Render-style guess but always let
+        // the user override it in the URL field -- the input is the source
+        // of truth, this function only sets its initial value.
+        function defaultBackendUrl() {
+            const { hostname, protocol } = window.location;
+            if (hostname === 'localhost' || hostname === '127.0.0.1') {
+                return 'ws://localhost:8080';
+            }
+            const scheme = protocol === 'https:' ? 'wss' : 'ws';
+            // Best-effort guess: swap "-frontend" for "-backend" in a
+            // typical Render hostname. If this guess is wrong for your
+            // actual service names, just edit the field and hit Reconnect --
+            // it's saved for next time via localStorage isn't used here on
+            // purpose (kept in-memory per the artifact/browser constraints),
+            // so re-enter it once per browser session if it doesn't match.
+            const guess = hostname.replace('-frontend', '-backend');
+            return `${scheme}://${guess}`;
+        }
+
+        function reconnect() {
+            if (ws) {
+                try { ws.close(); } catch (e) {}
+            }
+            if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+                reconnectTimer = null;
+            }
+            connect();
+        }
+
+        function connect() {
+            const url = document.getElementById('backend-url').value.trim();
+            if (!url) {
+                logSys('Enter a backend WebSocket URL above first.', 'error');
+                return;
+            }
+
+            document.getElementById('ws-dot').className = 'dot';
+            document.getElementById('ws-status').innerText = 'CONNECTING';
+
+            try {
+                ws = new WebSocket(url);
+            } catch (e) {
+                logSys('Invalid WebSocket URL: ' + escapeHtml(e.message), 'error');
+                return;
+            }
+
+            ws.onopen = () => {
+                document.getElementById('ws-dot').className = 'dot connected';
+                document.getElementById('ws-status').innerText = 'CONNECTED';
+                logSys('Connected to backend at ' + escapeHtml(url));
+            };
+
+            ws.onclose = () => {
+                document.getElementById('ws-dot').className = 'dot';
+                document.getElementById('ws-status').innerText = 'OFFLINE';
+                logSys('Connection lost. Retrying in 4s...', 'error');
+                reconnectTimer = setTimeout(connect, 4000);
+            };
+
+            ws.onerror = () => {
+                // onclose always fires right after onerror for WebSocket,
+                // so the retry logic above covers this -- this handler just
+                // avoids an uncaught-error console spam and gives one
+                // explicit log line for the failed attempt.
+                logSys('WebSocket error while connecting to ' + escapeHtml(url), 'error');
+            };
+
+            ws.onmessage = (event) => {
+                let data;
+                try {
+                    data = JSON.parse(event.data);
+                } catch (e) {
+                    logSys('Received malformed message from backend', 'error');
+                    return;
+                }
+
+                if (data.type === 'log') {
+                    logSys(`[${escapeHtml(data.id)}] ${escapeHtml(data.message)}`, data.level);
+                } else if (data.type === 'data') {
+                    renderPacket(data);
+                } else if (data.type === 'sent') {
+                    // Ack for an outbound send -- previously not handled at
+                    // all, so a failed send (bad IP, refused connection,
+                    // reset peer) gave zero feedback in the UI.
+                    if (data.ok) {
+                        logSys(`Packet sent successfully (${(data.protocol || '').toUpperCase()})`, 'success');
+                    } else {
+                        logSys(`Send failed: ${escapeHtml(data.error || 'unknown error')}`, 'error');
+                    }
+                }
+            };
+        }
+
+        function isConnected() {
+            return ws && ws.readyState === WebSocket.OPEN;
+        }
+
+        function startListener() {
+            if (!isConnected()) {
+                logSys('Not connected to backend -- check the URL above and hit Reconnect.', 'error');
+                return;
+            }
+            const proto = document.getElementById('listen-proto').value;
+            const port = parseInt(document.getElementById('listen-port').value, 10);
+            const ip = document.getElementById('listen-ip').value.trim() || '0.0.0.0';
+
+            if (!port || port < 1 || port > 65535) {
+                logSys('Enter a valid port (1-65535) before starting a listener.', 'error');
+                return;
+            }
+
+            const id = `${proto}_${port}_${Date.now()}`;
+            if ([...activeListeners.values()].some(v => v.proto === proto && v.port === port)) {
+                logSys(`Already listening on ${proto.toUpperCase()} :${port}.`, 'error');
+                return;
+            }
+
+            ws.send(JSON.stringify({ action: 'start_listener', id, protocol: proto, ip, port }));
+            activeListeners.set(id, { proto, port, ip });
+            refreshListenerUI();
+        }
+
+        function stopListener(id) {
+            if (isConnected()) {
+                ws.send(JSON.stringify({ action: 'stop_listener', id }));
+            }
+            activeListeners.delete(id);
+            refreshListenerUI();
+        }
+
+        function transmitPayload() {
+            if (!isConnected()) {
+                logSys('Not connected to backend -- check the URL above and hit Reconnect.', 'error');
+                return;
+            }
+            const protocol = document.getElementById('send-proto').value;
+            const ip = document.getElementById('send-ip').value.trim();
+            const port = parseInt(document.getElementById('send-port').value, 10);
+            const message = document.getElementById('send-msg').value;
+
+            if (!ip || !port || port < 1 || port > 65535) {
+                logSys('Enter a valid target IP and port before sending.', 'error');
+                return;
+            }
+
+            const reqId = 'req-' + Date.now();
+            ws.send(JSON.stringify({ action: 'send', protocol, ip, port, message, reqId }));
+            logSys(`Sending ${protocol.toUpperCase()} packet to ${escapeHtml(ip)}:${port}...`);
+        }
+
+        function refreshListenerUI() {
+            const container = document.getElementById('listeners-container');
+            container.innerHTML = '';
+            activeListeners.forEach((v, k) => {
+                container.innerHTML += `
+                    <div class="listener-item">
+                        <div class="listener-info">
+                            <div class="pulse-indicator"></div>
+                            <span>${escapeHtml(v.proto.toUpperCase())} :${escapeHtml(v.port)}</span>
+                        </div>
+                        <button class="danger" style="padding: 2px 6px; font-size:0.75rem" onclick="stopListener('${k}')">Kill</button>
+                    </div>
+                `;
+            });
+        }
+
+        function logSys(msg, level = 'info') {
+            const term = document.getElementById('terminal');
+            const time = new Date().toLocaleTimeString();
+            let color = 'var(--text-muted)';
+            if (level === 'error') color = 'var(--danger)';
+            if (level === 'success') color = 'var(--accent)';
+
+            term.innerHTML += `
+                <div class="row">
+                    <span class="ts">${time}</span>
+                    <span class="badge sys">sys</span>
+                    <span class="meta">--</span>
+                    <span class="msg-body" style="color: ${color}">${msg}</span>
+                </div>
+            `;
+            term.scrollTop = term.scrollHeight;
+        }
+
+        function renderPacket(pkt) {
+            const term = document.getElementById('terminal');
+            const time = new Date().toLocaleTimeString();
+
+            term.innerHTML += `
+                <div class="row">
+                    <span class="ts">${time}</span>
+                    <span class="badge in">recv</span>
+                    <span class="meta">${escapeHtml((pkt.protocol || '').toUpperCase())} @ ${escapeHtml(pkt.remote)}</span>
+                    <div class="msg-body">
+                        <span>${escapeHtml(pkt.text)}</span>
+                        <span class="hex-dump">HEX: ${escapeHtml(pkt.hex)} (${pkt.size} B)</span>
+                    </div>
+                </div>
+            `;
+            term.scrollTop = term.scrollHeight;
+        }
+
+        function clearConsole() { document.getElementById('terminal').innerHTML = ''; }
+
+        window.onload = () => {
+            document.getElementById('backend-url').value = defaultBackendUrl();
+            connect();
+        };
+    </script>
+</body>
+</html>
